@@ -1,0 +1,157 @@
+{
+  "type": "record",
+  "name": "SchemaChangeNotification",
+  "namespace": "io.confluent.schemachange.avro",
+  "doc": "Notification event for schema changes in Confluent Cloud Schema Registry",
+  "fields": [
+    {
+      "name": "event_type",
+      "type": {
+        "type": "enum",
+        "name": "EventType",
+        "symbols": ["SCHEMA_REGISTERED", "SCHEMA_DELETED", "SUBJECT_DELETED", "COMPATIBILITY_UPDATED", "MODE_UPDATED"]
+      },
+      "doc": "Type of schema change event"
+    },
+    {
+      "name": "environment_id",
+      "type": ["null", "string"],
+      "default": null,
+      "doc": "Confluent Cloud environment ID"
+    },
+    {
+      "name": "subject",
+      "type": ["null", "string"],
+      "default": null,
+      "doc": "Schema Registry subject name"
+    },
+    {
+      "name": "schema_id",
+      "type": ["null", "int"],
+      "default": null,
+      "doc": "Schema ID in the registry"
+    },
+    {
+      "name": "version",
+      "type": ["null", "int"],
+      "default": null,
+      "doc": "Schema version number"
+    },
+    {
+      "name": "schema_type",
+      "type": ["null", "string"],
+      "default": null,
+      "doc": "Schema type (AVRO, PROTOBUF, JSON)"
+    },
+    {
+      "name": "timestamp",
+      "type": ["null", "string"],
+      "default": null,
+      "doc": "ISO-8601 timestamp of the event"
+    },
+    {
+      "name": "audit_log_event_id",
+      "type": ["null", "string"],
+      "default": null,
+      "doc": "Original audit log event ID"
+    },
+    {
+      "name": "data_contract_registered",
+      "type": ["null", {
+        "type": "record",
+        "name": "DataContractRegistered",
+        "fields": [
+          {
+            "name": "schema",
+            "type": ["null", "string"],
+            "default": null,
+            "doc": "The schema definition"
+          },
+          {
+            "name": "references",
+            "type": ["null", "string"],
+            "default": null,
+            "doc": "JSON string of schema references"
+          }
+        ]
+      }],
+      "default": null,
+      "doc": "Details for SCHEMA_REGISTERED events"
+    },
+    {
+      "name": "data_contract_deleted",
+      "type": ["null", {
+        "type": "record",
+        "name": "DataContractDeleted",
+        "fields": [
+          {
+            "name": "permanent",
+            "type": ["null", "boolean"],
+            "default": null,
+            "doc": "Whether the delete is permanent (hard delete)"
+          }
+        ]
+      }],
+      "default": null,
+      "doc": "Details for SCHEMA_DELETED events"
+    },
+    {
+      "name": "subject_deleted",
+      "type": ["null", {
+        "type": "record",
+        "name": "SubjectDeleted",
+        "fields": [
+          {
+            "name": "permanent",
+            "type": ["null", "boolean"],
+            "default": null,
+            "doc": "Whether the delete is permanent"
+          },
+          {
+            "name": "versions_deleted",
+            "type": ["null", "int"],
+            "default": null,
+            "doc": "Number of versions deleted"
+          }
+        ]
+      }],
+      "default": null,
+      "doc": "Details for SUBJECT_DELETED events"
+    },
+    {
+      "name": "compatibility_updated",
+      "type": ["null", {
+        "type": "record",
+        "name": "CompatibilityUpdated",
+        "fields": [
+          {
+            "name": "new_compatibility",
+            "type": ["null", "string"],
+            "default": null,
+            "doc": "New compatibility level"
+          }
+        ]
+      }],
+      "default": null,
+      "doc": "Details for COMPATIBILITY_UPDATED events"
+    },
+    {
+      "name": "mode_updated",
+      "type": ["null", {
+        "type": "record",
+        "name": "ModeUpdated",
+        "fields": [
+          {
+            "name": "new_mode",
+            "type": ["null", "string"],
+            "default": null,
+            "doc": "New mode value"
+          }
+        ]
+      }],
+      "default": null,
+      "doc": "Details for MODE_UPDATED events"
+    }
+  ]
+}
+

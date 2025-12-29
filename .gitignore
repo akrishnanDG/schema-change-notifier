@@ -1,0 +1,55 @@
+# ===== Build Output =====
+target/
+build/
+out/
+*.jar
+*.war
+*.ear
+
+# ===== Maven =====
+dependency-reduced-pom.xml
+pom.xml.tag
+pom.xml.releaseBackup
+pom.xml.versionsBackup
+release.properties
+
+# ===== IDE =====
+.idea/
+*.iml
+*.ipr
+*.iws
+.project
+.classpath
+.settings/
+.vscode/
+*.code-workspace
+.factorypath
+*.swp
+*.swo
+*~
+
+# ===== OS =====
+.DS_Store
+Thumbs.db
+*.bak
+
+# ===== Logs =====
+logs/
+*.log
+
+# ===== Runtime State =====
+schema-change-notifier-state.json
+*.state.json
+
+# ===== Secrets - NEVER commit! =====
+config/application.properties
+*.credentials
+*.secrets
+
+# ===== Generated Avro Classes =====
+# These are regenerated from .avsc files during build
+src/main/java/io/confluent/schemachange/avro/
+
+# ===== Test Output =====
+src/test/resources/mockito-extensions/
+
