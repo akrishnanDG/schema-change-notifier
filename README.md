@@ -29,7 +29,7 @@ This tool transforms raw audit log events into **actionable schema change notifi
 │  a schema           │         │  • Fetches content  │         │  • Documentation    │
 │                     │         │  • Produces Avro    │         │  • Data catalogs    │
 └─────────────────────┘         └─────────────────────┘         │  • Alerting         │
-                                                                 └─────────────────────┘
+                                                                └─────────────────────┘
 ```
 
 **One notification topic, many consumers.** Each downstream system subscribes to `schema-change-notifications` and reacts in its own way.
