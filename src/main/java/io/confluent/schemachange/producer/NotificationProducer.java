@@ -121,14 +121,16 @@ public class NotificationProducer implements AutoCloseable {
         // Bootstrap servers
         props.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, config.getTargetBootstrapServers());
         
-        // Security configuration for Confluent Cloud
-        props.put("security.protocol", SECURITY_PROTOCOL);
-        props.put("sasl.mechanism", SASL_MECHANISM);
-        props.put("sasl.jaas.config", String.format(
-                JAAS_CONFIG_TEMPLATE,
-                config.getTargetApiKey(),
-                config.getTargetApiSecret()
-        ));
+        // Security configuration
+        props.put("security.protocol", config.getSecurityProtocol());
+        if (config.getSecurityProtocol().contains("SASL")) {
+            props.put("sasl.mechanism", config.getSaslMechanism());
+            props.put("sasl.jaas.config", String.format(
+                    JAAS_CONFIG_TEMPLATE,
+                    config.getTargetApiKey(),
+                    config.getTargetApiSecret()
+            ));
+        }
         
         // Serializers - Avro for value
         props.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG, StringSerializer.class.getName());

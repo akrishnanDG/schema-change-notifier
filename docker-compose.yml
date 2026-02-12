@@ -1,0 +1,16 @@
+services:
+  schema-change-notifier:
+    build: .
+    container_name: schema-change-notifier
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./config/application.properties:/app/config/application.properties:ro
+      - ./logs:/app/logs
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3

@@ -86,6 +86,19 @@ public class AppConfig {
     private boolean enableDeduplication = true;
     private String stateFilePath = DEFAULT_STATE_FILE_PATH;
 
+    // ==================== Security Configuration ====================
+
+    private String securityProtocol = "SASL_SSL";
+    private String saslMechanism = "PLAIN";
+
+    // ==================== Health Server Configuration ====================
+
+    private int healthPort = DEFAULT_HEALTH_PORT;
+
+    // ==================== Processing Threads Configuration ====================
+
+    private int processingThreads = 1;
+
     // ==================== Operational Configuration ====================
 
     private boolean dryRun = false;
@@ -650,6 +663,46 @@ public class AppConfig {
      */
     public void setBatchSize(int batchSize) {
         this.batchSize = batchSize;
+    }
+
+    // ==================== Security Configuration Getters/Setters ====================
+
+    @Nonnull
+    public String getSecurityProtocol() {
+        return securityProtocol;
+    }
+
+    public void setSecurityProtocol(@Nonnull String securityProtocol) {
+        this.securityProtocol = securityProtocol;
+    }
+
+    @Nonnull
+    public String getSaslMechanism() {
+        return saslMechanism;
+    }
+
+    public void setSaslMechanism(@Nonnull String saslMechanism) {
+        this.saslMechanism = saslMechanism;
+    }
+
+    // ==================== Health Server Getters/Setters ====================
+
+    public int getHealthPort() {
+        return healthPort;
+    }
+
+    public void setHealthPort(int healthPort) {
+        this.healthPort = healthPort;
+    }
+
+    // ==================== Processing Threads Getters/Setters ====================
+
+    public int getProcessingThreads() {
+        return processingThreads;
+    }
+
+    public void setProcessingThreads(int processingThreads) {
+        this.processingThreads = processingThreads;
     }
 
     // ==================== Validation ====================

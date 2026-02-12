@@ -3,6 +3,7 @@ package io.confluent.schemachange;
 import io.confluent.schemachange.cli.SchemaChangeNotifierCommand;
 import io.confluent.schemachange.config.AppConfig;
 import io.confluent.schemachange.consumer.AuditLogConsumer;
+import io.confluent.schemachange.health.HealthServer;
 import io.confluent.schemachange.model.AuditLogEvent;
 import io.confluent.schemachange.model.SchemaChangeNotification;
 import io.confluent.schemachange.processor.SchemaChangeProcessor;
@@ -13,8 +14,10 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import picocli.CommandLine;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 
@@ -56,6 +59,9 @@ public class SchemaChangeNotifierApp {
             running.set(false);
         }));
 
+        HealthServer healthServer = null;
+        ExecutorService executor = null;
+
         try (
                 AuditLogConsumer consumer = new AuditLogConsumer(config);
                 SchemaRegistryService schemaRegistry = new SchemaRegistryService(config);
@@ -64,37 +70,62 @@ public class SchemaChangeNotifierApp {
         ) {
             SchemaChangeProcessor processor = new SchemaChangeProcessor(config, schemaRegistry);
 
+            // Start health server if configured
+            if (config.getHealthPort() > 0) {
+                try {
+                    healthServer = new HealthServer(config.getHealthPort(), running,
+                            eventsConsumed, eventsProcessed, notificationsProduced, duplicatesSkipped);
+                    healthServer.start();
+                } catch (Exception e) {
+                    logger.warn("Failed to start health server on port {}: {}", config.getHealthPort(), e.getMessage());
+                }
+            }
+
+            // Create thread pool for parallel processing if configured
+            int threads = config.getProcessingThreads();
+            if (threads > 1) {
+                executor = Executors.newFixedThreadPool(threads);
+                logger.info("Parallel processing enabled with {} threads", threads);
+            }
+
             long lastStatusLog = System.currentTimeMillis();
-            
+
             while (running.get() && consumer.isRunning()) {
                 try {
-                    // Poll for audit log events
                     List<AuditLogEvent> events = consumer.poll();
-                    
+
                     if (events.isEmpty()) {
                         continue;
                     }
-                    
+
                     eventsConsumed.addAndGet(events.size());
 
-                    // Process each event
-                    for (AuditLogEvent event : events) {
-                        processEvent(event, processor, producer, deduplication);
+                    if (executor != null && events.size() > 1) {
+                        // Parallel processing
+                        List<CompletableFuture<Void>> futures = new ArrayList<>();
+                        for (AuditLogEvent event : events) {
+                            futures.add(CompletableFuture.runAsync(
+                                    () -> processEvent(event, processor, producer, deduplication), executor));
+                        }
+                        CompletableFuture.allOf(futures.toArray(new CompletableFuture[0]))
+                                .get(60, TimeUnit.SECONDS);
+                    } else {
+                        // Sequential processing
+                        for (AuditLogEvent event : events) {
+                            processEvent(event, processor, producer, deduplication);
+                        }
                     }
 
-                    // Commit offsets after processing batch
                     consumer.commitSync();
 
-                    // Periodic status logging
                     long now = System.currentTimeMillis();
-                    if (now - lastStatusLog > 60_000) { // Every minute
+                    if (now - lastStatusLog > 60_000) {
                         logStatus();
                         lastStatusLog = now;
                     }
 
                 } catch (Exception e) {
                     logger.error("Error in main loop: {}", e.getMessage(), e);
-                    // Continue processing, don't crash on individual errors
                 }
             }
 
@@ -102,6 +133,20 @@ public class SchemaChangeNotifierApp {
             logger.error("Fatal error: {}", e.getMessage(), e);
             throw new RuntimeException(e);
         } finally {
+            if (healthServer != null) {
+                healthServer.close();
+            }
+            if (executor != null) {
+                executor.shutdown();
+                try {
+                    if (!executor.awaitTermination(10, TimeUnit.SECONDS)) {
+                        executor.shutdownNow();
+                    }
+                } catch (InterruptedException e) {
+                    executor.shutdownNow();
+                    Thread.currentThread().interrupt();
+                }
+            }
             logFinalStatus();
         }
     }

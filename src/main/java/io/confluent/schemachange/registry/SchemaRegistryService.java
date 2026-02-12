@@ -3,6 +3,8 @@ package io.confluent.schemachange.registry;
 import io.confluent.schemachange.config.AppConfig;
 import io.confluent.schemachange.config.EnvironmentConfig;
 import io.confluent.schemachange.exception.SchemaRegistryException;
+import io.confluent.schemachange.util.CircuitBreaker;
+import io.confluent.schemachange.util.RetryExecutor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -41,9 +43,11 @@ public class SchemaRegistryService implements SchemaRegistryClient {
 
     private final HttpClient httpClient;
     private final ObjectMapper objectMapper;
-    
+
     private final Map<String, EnvironmentConfig> environmentConfigs;
     private final Map<String, SchemaInfo> schemaCache = new ConcurrentHashMap<>();
+    private final RetryExecutor retryExecutor;
+    private final CircuitBreaker circuitBreaker;
 
     /**
      * Creates a new SchemaRegistryService with the given configuration.
@@ -53,12 +57,17 @@ public class SchemaRegistryService implements SchemaRegistryClient {
     public SchemaRegistryService(@Nonnull AppConfig config) {
         this.environmentConfigs = config.getEnvironments();
         this.objectMapper = new ObjectMapper();
-        
+
         this.httpClient = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(HTTP_CONNECT_TIMEOUT_SECONDS))
                 .build();
-        
-        logger.info("Schema Registry service initialized for {} environment(s): {}", 
+
+        this.retryExecutor = new RetryExecutor(SR_MAX_RETRIES, SR_INITIAL_BACKOFF_MS, SR_MAX_BACKOFF_MS);
+        this.circuitBreaker = new CircuitBreaker(
+                "schema-registry", CIRCUIT_BREAKER_FAILURE_THRESHOLD,
+                CIRCUIT_BREAKER_RESET_TIMEOUT_SECONDS * 1000L);
+
+        logger.info("Schema Registry service initialized for {} environment(s): {}",
                 environmentConfigs.size(), environmentConfigs.keySet());
     }
 
@@ -108,58 +117,62 @@ public class SchemaRegistryService implements SchemaRegistryClient {
             return cached;
         }
 
+        String baseUrl = normalizeUrl(envConfig.getSchemaRegistryUrl());
+        String authHeader = createAuthHeader(
+                envConfig.getSchemaRegistryApiKey(),
+                envConfig.getSchemaRegistryApiSecret());
+
         try {
-            String baseUrl = normalizeUrl(envConfig.getSchemaRegistryUrl());
-            String authHeader = createAuthHeader(
-                    envConfig.getSchemaRegistryApiKey(), 
-                    envConfig.getSchemaRegistryApiSecret());
+            return circuitBreaker.execute(() ->
+                retryExecutor.executeWithRetry(() -> {
+                    String url = baseUrl + "/schemas/ids/" + schemaId;
 
-            String url = baseUrl + "/schemas/ids/" + schemaId;
-            
-            HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create(url))
-                    .header("Authorization", authHeader)
-                    .header("Accept", SCHEMA_REGISTRY_CONTENT_TYPE)
-                    .GET()
-                    .timeout(Duration.ofSeconds(HTTP_READ_TIMEOUT_SECONDS))
-                    .build();
+                    HttpRequest request = HttpRequest.newBuilder()
+                            .uri(URI.create(url))
+                            .header("Authorization", authHeader)
+                            .header("Accept", SCHEMA_REGISTRY_CONTENT_TYPE)
+                            .GET()
+                            .timeout(Duration.ofSeconds(HTTP_READ_TIMEOUT_SECONDS))
+                            .build();
 
-            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+                    HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
 
-            if (response.statusCode() == 200) {
-                JsonNode json = objectMapper.readTree(response.body());
-                
-                String schema = json.has("schema") ? json.get("schema").asText() : null;
-                String schemaType = json.has("schemaType") ? json.get("schemaType").asText() : DEFAULT_SCHEMA_TYPE;
-                Object references = json.has("references") ? json.get("references") : null;
-                
-                // Fetch version info
-                VersionInfo versionInfo = fetchVersionInfo(envConfig, schemaId);
-                
-                SchemaInfo schemaInfo = new SchemaInfo(
-                        environmentId,
-                        schemaId,
-                        versionInfo != null ? versionInfo.subject() : null,
-                        versionInfo != null ? versionInfo.version() : null,
-                        schema,
-                        schemaType,
-                        references
-                );
-                
-                schemaCache.put(cacheKey, schemaInfo);
-                
-                logger.debug("Fetched schema {} from environment {} (subject={}, version={})", 
-                        schemaId, environmentId, schemaInfo.subject(), schemaInfo.version());
-                return schemaInfo;
-                
-            } else if (response.statusCode() == 404) {
-                logger.warn("Schema {} not found in environment {}", schemaId, environmentId);
-                return null;
-            } else {
-                throw new SchemaRegistryException(
-                        String.format("Failed to fetch schema: %s", response.body()),
-                        environmentId, schemaId, response.statusCode());
-            }
+                    if (response.statusCode() == 200) {
+                        JsonNode json = objectMapper.readTree(response.body());
+
+                        String schema = json.has("schema") ? json.get("schema").asText() : null;
+                        String schemaType = json.has("schemaType") ? json.get("schemaType").asText() : DEFAULT_SCHEMA_TYPE;
+                        Object references = json.has("references") ? json.get("references") : null;
+
+                        VersionInfo versionInfo = fetchVersionInfo(envConfig, schemaId);
+
+                        SchemaInfo schemaInfo = new SchemaInfo(
+                                environmentId, schemaId,
+                                versionInfo != null ? versionInfo.subject() : null,
+                                versionInfo != null ? versionInfo.version() : null,
+                                schema, schemaType, references);
+
+                        schemaCache.put(cacheKey, schemaInfo);
+
+                        logger.debug("Fetched schema {} from environment {} (subject={}, version={})",
+                                schemaId, environmentId, schemaInfo.subject(), schemaInfo.version());
+                        return schemaInfo;
+
+                    } else if (response.statusCode() == 404) {
+                        logger.warn("Schema {} not found in environment {}", schemaId, environmentId);
+                        return null;
+                    } else {
+                        throw new SchemaRegistryException(
+                                String.format("Failed to fetch schema: %s", response.body()),
+                                environmentId, schemaId, response.statusCode());
+                    }
+                }, "getSchemaById(" + environmentId + ":" + schemaId + ")")
+            );
+        } catch (CircuitBreaker.CircuitBreakerOpenException e) {
+            logger.warn("Circuit breaker open, returning cached value for schema {}", schemaId);
+            return schemaCache.get(cacheKey);
+        } catch (SchemaRegistryException e) {
+            throw e;
         } catch (IOException e) {
             throw new SchemaRegistryException(
                     "Network error fetching schema: " + e.getMessage(),
@@ -168,6 +181,10 @@ public class SchemaRegistryService implements SchemaRegistryClient {
             Thread.currentThread().interrupt();
             throw new SchemaRegistryException(
                     "Request interrupted while fetching schema",
+                    environmentId, schemaId, e);
+        } catch (Exception e) {
+            throw new SchemaRegistryException(
+                    "Error fetching schema: " + e.getMessage(),
                     environmentId, schemaId, e);
         }
     }
@@ -238,60 +255,63 @@ public class SchemaRegistryService implements SchemaRegistryClient {
             return null;
         }
 
+        String baseUrl = normalizeUrl(envConfig.getSchemaRegistryUrl());
+        String authHeader = createAuthHeader(
+                envConfig.getSchemaRegistryApiKey(),
+                envConfig.getSchemaRegistryApiSecret());
+
         try {
-            String baseUrl = normalizeUrl(envConfig.getSchemaRegistryUrl());
-            String authHeader = createAuthHeader(
-                    envConfig.getSchemaRegistryApiKey(), 
-                    envConfig.getSchemaRegistryApiSecret());
+            return circuitBreaker.execute(() ->
+                retryExecutor.executeWithRetry(() -> {
+                    String url = baseUrl + "/subjects/" + subject + "/versions/" + version;
 
-            String url = baseUrl + "/subjects/" + subject + "/versions/" + version;
-            
-            HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create(url))
-                    .header("Authorization", authHeader)
-                    .header("Accept", SCHEMA_REGISTRY_CONTENT_TYPE)
-                    .GET()
-                    .timeout(Duration.ofSeconds(HTTP_READ_TIMEOUT_SECONDS))
-                    .build();
+                    HttpRequest request = HttpRequest.newBuilder()
+                            .uri(URI.create(url))
+                            .header("Authorization", authHeader)
+                            .header("Accept", SCHEMA_REGISTRY_CONTENT_TYPE)
+                            .GET()
+                            .timeout(Duration.ofSeconds(HTTP_READ_TIMEOUT_SECONDS))
+                            .build();
 
-            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+                    HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
 
-            if (response.statusCode() == 200) {
-                JsonNode json = objectMapper.readTree(response.body());
-                
-                Integer schemaId = json.has("id") ? json.get("id").asInt() : null;
-                String schema = json.has("schema") ? json.get("schema").asText() : null;
-                String schemaType = json.has("schemaType") ? json.get("schemaType").asText() : DEFAULT_SCHEMA_TYPE;
-                Object references = json.has("references") ? json.get("references") : null;
-                
-                SchemaInfo schemaInfo = new SchemaInfo(
-                        environmentId,
-                        schemaId,
-                        subject,
-                        version,
-                        schema,
-                        schemaType,
-                        references
-                );
-                
-                if (schemaId != null) {
-                    String cacheKey = environmentId + ":" + schemaId;
-                    schemaCache.put(cacheKey, schemaInfo);
-                }
-                
-                logger.debug("Fetched schema for subject {} version {} from environment {}", 
-                        subject, version, environmentId);
-                return schemaInfo;
-                
-            } else if (response.statusCode() == 404) {
-                logger.warn("Schema for subject {} version {} not found in environment {}", 
-                        subject, version, environmentId);
-                return null;
-            } else {
-                throw new SchemaRegistryException(
-                        String.format("Failed to fetch schema: %s", response.body()),
-                        environmentId, null, response.statusCode());
-            }
+                    if (response.statusCode() == 200) {
+                        JsonNode json = objectMapper.readTree(response.body());
+
+                        Integer schemaId = json.has("id") ? json.get("id").asInt() : null;
+                        String schema = json.has("schema") ? json.get("schema").asText() : null;
+                        String schemaType = json.has("schemaType") ? json.get("schemaType").asText() : DEFAULT_SCHEMA_TYPE;
+                        Object references = json.has("references") ? json.get("references") : null;
+
+                        SchemaInfo schemaInfo = new SchemaInfo(
+                                environmentId, schemaId, subject, version,
+                                schema, schemaType, references);
+
+                        if (schemaId != null) {
+                            String cacheKey = environmentId + ":" + schemaId;
+                            schemaCache.put(cacheKey, schemaInfo);
+                        }
+
+                        logger.debug("Fetched schema for subject {} version {} from environment {}",
+                                subject, version, environmentId);
+                        return schemaInfo;
+
+                    } else if (response.statusCode() == 404) {
+                        logger.warn("Schema for subject {} version {} not found in environment {}",
+                                subject, version, environmentId);
+                        return null;
+                    } else {
+                        throw new SchemaRegistryException(
+                                String.format("Failed to fetch schema: %s", response.body()),
+                                environmentId, null, response.statusCode());
+                    }
+                }, "getSchemaBySubjectVersion(" + environmentId + ":" + subject + ":" + version + ")")
+            );
+        } catch (CircuitBreaker.CircuitBreakerOpenException e) {
+            logger.warn("Circuit breaker open for subject {} version {}", subject, version);
+            return null;
+        } catch (SchemaRegistryException e) {
+            throw e;
         } catch (IOException e) {
             throw new SchemaRegistryException(
                     "Network error fetching schema: " + e.getMessage(),
@@ -300,6 +320,10 @@ public class SchemaRegistryService implements SchemaRegistryClient {
             Thread.currentThread().interrupt();
             throw new SchemaRegistryException(
                     "Request interrupted while fetching schema",
+                    environmentId, null, e);
+        } catch (Exception e) {
+            throw new SchemaRegistryException(
+                    "Error fetching schema: " + e.getMessage(),
                     environmentId, null, e);
         }
     }

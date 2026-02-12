@@ -89,6 +89,21 @@ public class SchemaChangeNotifierCommand implements Callable<Integer> {
     @Option(names = {"--state-file"}, description = "Path to state file for deduplication")
     private String stateFile;
 
+    // Security options
+    @Option(names = {"--security-protocol"}, description = "Security protocol: PLAINTEXT, SSL, SASL_PLAINTEXT, SASL_SSL")
+    private String securityProtocol;
+
+    @Option(names = {"--sasl-mechanism"}, description = "SASL mechanism: PLAIN, SCRAM-SHA-256, SCRAM-SHA-512, OAUTHBEARER")
+    private String saslMechanism;
+
+    // Health server options
+    @Option(names = {"--health-port"}, description = "Health check server port (0 to disable)")
+    private Integer healthPort;
+
+    // Processing threads
+    @Option(names = {"--processing-threads"}, description = "Number of threads for parallel event processing")
+    private Integer processingThreads;
+
     // Operational options
     @Option(names = {"--dry-run"}, description = "Print notifications without producing")
     private boolean dryRun;
@@ -223,6 +238,24 @@ public class SchemaChangeNotifierCommand implements Callable<Integer> {
             config.setStateFilePath(props.getProperty("state.store.path"));
         }
 
+        // Security
+        if (props.containsKey("security.protocol")) {
+            config.setSecurityProtocol(props.getProperty("security.protocol"));
+        }
+        if (props.containsKey("sasl.mechanism")) {
+            config.setSaslMechanism(props.getProperty("sasl.mechanism"));
+        }
+
+        // Health server
+        if (props.containsKey("health.port")) {
+            config.setHealthPort(Integer.parseInt(props.getProperty("health.port")));
+        }
+
+        // Processing threads
+        if (props.containsKey("processing.threads")) {
+            config.setProcessingThreads(Integer.parseInt(props.getProperty("processing.threads")));
+        }
+
         // Operational
         if (props.containsKey("dry.run")) {
             config.setDryRun(Boolean.parseBoolean(props.getProperty("dry.run")));
@@ -330,6 +363,24 @@ public class SchemaChangeNotifierCommand implements Callable<Integer> {
         config.setEnableDeduplication(enableDeduplication);
         if (stateFile != null) {
             config.setStateFilePath(stateFile);
+        }
+
+        // Security
+        if (securityProtocol != null) {
+            config.setSecurityProtocol(securityProtocol);
+        }
+        if (saslMechanism != null) {
+            config.setSaslMechanism(saslMechanism);
+        }
+
+        // Health server
+        if (healthPort != null) {
+            config.setHealthPort(healthPort);
+        }
+
+        // Processing threads
+        if (processingThreads != null) {
+            config.setProcessingThreads(processingThreads);
         }
 
         // Operational

@@ -65,14 +65,16 @@ public class AuditLogConsumer implements AutoCloseable {
         // Bootstrap servers
         props.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, config.getAuditLogBootstrapServers());
         
-        // Security configuration for Confluent Cloud
-        props.put("security.protocol", SECURITY_PROTOCOL);
-        props.put("sasl.mechanism", SASL_MECHANISM);
-        props.put("sasl.jaas.config", String.format(
-                JAAS_CONFIG_TEMPLATE,
-                config.getAuditLogApiKey(),
-                config.getAuditLogApiSecret()
-        ));
+        // Security configuration
+        props.put("security.protocol", config.getSecurityProtocol());
+        if (config.getSecurityProtocol().contains("SASL")) {
+            props.put("sasl.mechanism", config.getSaslMechanism());
+            props.put("sasl.jaas.config", String.format(
+                    JAAS_CONFIG_TEMPLATE,
+                    config.getAuditLogApiKey(),
+                    config.getAuditLogApiSecret()
+            ));
+        }
         
         // Consumer configuration
         props.put(ConsumerConfig.GROUP_ID_CONFIG, config.getConsumerGroupId());

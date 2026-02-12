@@ -141,6 +141,42 @@ public final class KafkaConstants {
      */
     public static final String DEFAULT_STATE_FILE_PATH = "./schema-change-notifier-state.json";
 
+    // ==================== Schema Registry Retry ====================
+
+    /**
+     * Maximum number of retries for Schema Registry HTTP calls.
+     */
+    public static final int SR_MAX_RETRIES = 3;
+
+    /**
+     * Initial backoff in milliseconds for Schema Registry retries.
+     */
+    public static final long SR_INITIAL_BACKOFF_MS = 500;
+
+    /**
+     * Maximum backoff in milliseconds for Schema Registry retries.
+     */
+    public static final long SR_MAX_BACKOFF_MS = 5000;
+
+    // ==================== Circuit Breaker ====================
+
+    /**
+     * Number of consecutive failures before opening the circuit breaker.
+     */
+    public static final int CIRCUIT_BREAKER_FAILURE_THRESHOLD = 5;
+
+    /**
+     * Time in seconds to wait before attempting to reset the circuit breaker.
+     */
+    public static final int CIRCUIT_BREAKER_RESET_TIMEOUT_SECONDS = 60;
+
+    // ==================== Health Server ====================
+
+    /**
+     * Default port for the health check HTTP server. Set to 0 to disable.
+     */
+    public static final int DEFAULT_HEALTH_PORT = 8080;
+
     // ==================== Result Status ====================
 
     /**

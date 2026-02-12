@@ -1,0 +1,12 @@
+.git/
+target/
+logs/
+*.log
+.idea/
+*.iml
+.vscode/
+.DS_Store
+config/application.properties
+schema-change-notifier-state.json
+*.state.json
+dependency-reduced-pom.xml
